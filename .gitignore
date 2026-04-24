@@ -1,0 +1,24 @@
+# Build output
+bin/
+obj/
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# IDE folders
+.vs/
+.vscode/
+.idea/
+
+# Test output
+TestResults/
+*.trx
+coverage/
+coverage.*
+
+# OS files
+Thumbs.db
+Desktop.ini
