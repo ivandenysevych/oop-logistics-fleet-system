@@ -40,4 +40,26 @@ public sealed class Delivery
             _ => throw new NotSupportedException($"Unsupported vehicle type: {source.GetType().Name}")
         };
     }
+
+    // --- ДОДАНІ МЕТОДИ ---
+
+    public override string ToString()
+    {
+        return $"{Cargo?.Name} via {Vehicle?.Name} ({Route?.From} -> {Route?.To})";
+    }
+
+    public override bool Equals(object? obj)
+    {
+        if (obj is not Delivery other)
+            return false;
+
+        return Equals(Vehicle, other.Vehicle) &&
+               Equals(Cargo, other.Cargo) &&
+               Equals(Route, other.Route);
+    }
+
+    public override int GetHashCode()
+    {
+        return HashCode.Combine(Vehicle, Cargo, Route);
+    }
 }

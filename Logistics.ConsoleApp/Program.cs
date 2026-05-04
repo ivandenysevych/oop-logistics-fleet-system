@@ -1,5 +1,7 @@
 using Logistics.Application.Decorators;
+using Logistics.Application.Extensions;
 using Logistics.Application.Factories;
+using Logistics.Application.Generics;
 using Logistics.Application.Services;
 using Logistics.Application.Strategies;
 using Logistics.Domain.Models;
@@ -12,6 +14,8 @@ internal static class Program
     {
         var factory = new VehicleFactory();
         var deliveryService = new DeliveryService();
+        var repository = new InMemoryRepository<Delivery>();
+        var costCache = new Cache<string, decimal>();
 
         var scenarios = new List<DeliveryScenario>
         {
@@ -38,15 +42,22 @@ internal static class Program
                 WithInsurance: false)
         };
 
+        scenarios.ForEachItem(scenario => repository.Add(scenario.Delivery));
+
+        // Delegate + lambda: reusable predicate for selection.
+        Func<Delivery, bool> heavyCargoFilter = delivery => delivery.Cargo.Weight >= 1000m;
+        var heavyDeliveries = repository.Find(heavyCargoFilter);
+        Console.WriteLine($"Heavy cargo deliveries (>= 1000): {heavyDeliveries.Count}");
+        Console.WriteLine();
+
         // LINQ: convert scenarios into output-ready reports.
         var reports = scenarios
             .Select((scenario, index) => BuildReport(index + 1, scenario, deliveryService))
             .ToList();
 
-        foreach (var report in reports)
-        {
-            PrintReport(report);
-        }
+        // Delegate + extension method: batch output.
+        Action<DeliveryReport> reportPrinter = PrintReport;
+        reports.ForEachItem(reportPrinter);
 
         var successfulCosts = reports
             .Where(report => report.IsSuccess)
@@ -59,10 +70,49 @@ internal static class Program
             return;
         }
 
+        var indexedCosts = reports
+            .Where(report => report.IsSuccess)
+            .ToDictionary(report => report.Number, report => report.Cost);
+        foreach (var pair in indexedCosts)
+        {
+            costCache.Set($"delivery-{pair.Key}", pair.Value);
+        }
+
+        // Query syntax example.
+        var expensiveReports =
+            from report in reports
+            where report.IsSuccess && report.Cost > 3000m
+            select report;
+
+        // GroupBy + projection.
+        var groupedByVehicle = reports
+            .Where(report => report.IsSuccess)
+            .GroupBy(report => report.Delivery.Vehicle.GetType().Name)
+            .Select(group => new VehicleGroupReport(
+                group.Key,
+                group.Count(),
+                group.Sum(report => report.Cost)))
+            .ToList();
+
+        // Map + Reduce extensions over a typed collection.
+        var costLabels = successfulCosts.Map(cost => $"Cost item: {cost:0.##}");
+        var totalByReduce = successfulCosts.Reduce(0m, (sum, current) => sum + current);
+
         Console.WriteLine("----- Summary -----");
         Console.WriteLine($"Successful deliveries: {successfulCosts.Count}");
         Console.WriteLine($"Total cost: {successfulCosts.Sum():0.##}");
+        Console.WriteLine($"Total by Reduce extension: {totalByReduce:0.##}");
         Console.WriteLine($"Average cost: {successfulCosts.Average():0.##}");
+        Console.WriteLine($"Expensive deliveries (> 3000): {expensiveReports.Count()}");
+        Console.WriteLine();
+
+        Console.WriteLine("----- Grouped By Vehicle -----");
+        groupedByVehicle.ForEachItem(group =>
+            Console.WriteLine($"{group.VehicleType}: Count={group.Count}, Total={group.TotalCost:0.##}"));
+        Console.WriteLine();
+
+        Console.WriteLine("----- Labels (Map extension) -----");
+        costLabels.ForEachItem(Console.WriteLine);
     }
 
     private static DeliveryReport BuildReport(int number, DeliveryScenario scenario, DeliveryService service)
@@ -109,3 +159,5 @@ internal static class Program
 internal sealed record DeliveryScenario(Delivery Delivery, ICostStrategy Strategy, bool WithInsurance);
 
 internal sealed record DeliveryReport(int Number, Delivery Delivery, decimal Cost, bool IsSuccess, string? Error);
+
+internal sealed record VehicleGroupReport(string VehicleType, int Count, decimal TotalCost);
